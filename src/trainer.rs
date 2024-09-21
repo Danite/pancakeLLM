@@ -28,8 +28,9 @@ impl Trainer {
         let labels = batch.select(0, 1);
 
         let logits = self.model.forward_t(&input_ids, true);
-        let loss =
-            logits.cross_entropy_loss::<Tensor>(&labels, None, tch::Reduction::Mean, -100, 0.0);
+        let loss = logits
+            .view([-1, self.model.config.vocab_size])
+            .cross_entropy_loss::<Tensor>(&labels.view(-1), None, tch::Reduction::Mean, -100, 0.0);
 
         if loss.isnan().any().int64_value(&[]) != 0 {
             return Err(anyhow::anyhow!("NaN loss encountered"));

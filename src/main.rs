@@ -27,8 +27,8 @@ fn main() -> Result<()> {
     // dummy dataset
     let dataset: Vec<Tensor> = (0..100)
         .map(|_| {
-            let input_ids = Tensor::randint(config.vocab_size, &[50], (Kind::Int64, device));
-            let labels = Tensor::randint(config.vocab_size, &[50], (Kind::Int64, device));
+            let input_ids = Tensor::randint(config.vocab_size, &[32, 50], (Kind::Int64, device));
+            let labels = Tensor::randint(config.vocab_size, &[32, 50], (Kind::Int64, device));
             Tensor::stack(&[input_ids, labels], 0)
         })
         .collect();
