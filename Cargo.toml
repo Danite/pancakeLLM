@@ -1,11 +1,16 @@
 [package]
-name = "llm-rust"
+name = "pancakellm"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 tch = "0.10.1"
-rust-bert = "0.20.0"
 tokenizers = "0.13.2"
 serde = { version = "1.0", features = ["derive"] }
-rayon = "1.7"
+serde_json = "1.0"
+rayon = "1.5"
+ndarray = "0.15"
+anyhow = "1.0"
+
+[features]
+cuda = ["tch/cuda"]
