@@ -1,6 +1,7 @@
 use anyhow::Result;
+use rand::Rng;
 use tch::nn::{Module, ModuleT};
-use tch::{nn, Kind, Tensor};
+use tch::{nn, Device, Kind, Tensor};
 
 #[derive(Debug, Clone)]
 pub struct LLMConfig {
@@ -82,6 +83,68 @@ impl PancakeLLM {
             lm_head,
         })
     }
+
+    pub fn generate(&self, input_ids: &Tensor, max_length: usize) -> Result<Vec<i64>> {
+        println!("Generate input tensor size: {:?}", input_ids.size());
+        if input_ids.size()[0] == 0 || input_ids.size()[1] == 0 {
+            return Err(anyhow::anyhow!(
+                "Empty input tensor. Size: {:?}",
+                input_ids.size()
+            ));
+        }
+
+        let mut current_ids = input_ids.shallow_clone();
+        let mut generated_ids = Vec::new();
+
+        for _ in 0..max_length {
+            let logits = self.forward_t(&current_ids, false);
+            let next_token_logits = logits.select(1, -1);
+            let probs = next_token_logits.softmax(-1, Kind::Float);
+
+            println!("Top 5 probabilities: {:?}", probs.topk(5, -1, true, true));
+
+            // Sample from the probability distribution
+            let next_token = self.sample_from_probs(&probs)?;
+
+            generated_ids.push(next_token);
+
+            // Append the new token to the current_ids
+            current_ids = Tensor::cat(
+                &[
+                    current_ids,
+                    Tensor::f_from_slice(&[next_token])?.view((1, 1)),
+                ],
+                1,
+            );
+
+            // Stop if we generate an EOS token
+            if next_token == 2 {
+                break;
+            }
+        }
+
+        Ok(generated_ids)
+    }
+
+    fn sample_from_probs(&self, probs: &Tensor) -> Result<i64> {
+        let probs_vec: Vec<f32> = probs.view(-1).try_into()?;
+        let mut rng = rand::thread_rng();
+        let mut cumsum = 0.0;
+        let sample = rng.gen::<f32>();
+
+        for (i, &p) in probs_vec.iter().enumerate() {
+            cumsum += p;
+            if sample < cumsum {
+                return Ok(i as i64);
+            }
+        }
+
+        Ok((probs_vec.len() - 1) as i64) // Fallback to the last token if sampling fails
+    }
+
+    pub fn device(&self) -> Device {
+        self.token_embeddings.ws.device()
+    }
 }
 
 impl TransformerLayer {
@@ -161,7 +224,7 @@ impl MultiHeadAttention {
 }
 
 impl ModuleT for PancakeLLM {
-    fn forward_t(&self, input_ids: &Tensor, train: bool) -> Tensor {
+    fn forward_t(&self, input_ids: &Tensor, _train: bool) -> Tensor {
         let token_embeddings = self.token_embeddings.forward(input_ids);
         let position_ids = Tensor::arange(input_ids.size()[1], (Kind::Int64, input_ids.device()));
         let position_embeddings = self.position_embeddings.forward(&position_ids);

@@ -6,7 +6,7 @@ use crate::dataset::Dataset;
 use crate::model::{LLMConfig, PancakeLLM};
 
 pub struct Trainer {
-    model: PancakeLLM,
+    pub model: PancakeLLM,
     optimizer: nn::Optimizer,
     device: Device,
 }
@@ -28,7 +28,11 @@ impl Trainer {
         let input_ids = batch.shallow_clone();
         let labels = batch.shallow_clone();
 
+        println!("Input tensor shape: {:?}", input_ids.size());
+
         let logits = self.model.forward_t(&input_ids, true);
+        println!("Logits shape: {:?}", logits.size());
+
         let loss = logits
             .view([-1, self.model.config.vocab_size])
             .cross_entropy_loss::<Tensor>(&labels.view(-1), None, tch::Reduction::Mean, -100, 0.0);
@@ -42,22 +46,26 @@ impl Trainer {
         Ok(loss.double_value(&[]))
     }
 
-    pub fn train(&mut self, dataset: &Dataset, num_epochs: usize, batch_size: usize) -> Result<()> {
+    pub fn train<'a>(
+        &mut self,
+        dataset: &Dataset<'a>,
+        num_epochs: usize,
+        batch_size: usize,
+    ) -> Result<()> {
         for epoch in 0..num_epochs {
             let mut total_loss = 0.0;
-            let num_batches = (dataset.len() + batch_size - 1) / batch_size;
+            let mut num_batches = 0;
 
-            for _ in 0..num_batches {
-                let batch = dataset.get_batch(batch_size)?;
-
-                // Skip empty batches
-                if batch.size()[0] == 0 {
-                    continue;
-                }
-
-                match self.train_step(&batch) {
-                    Ok(loss) => total_loss += loss,
-                    Err(e) => println!("Warning: Error in batch: {}", e),
+            for _ in 0..(dataset.len() + batch_size - 1) / batch_size {
+                match dataset.get_batch(batch_size)? {
+                    Some(batch) => match self.train_step(&batch) {
+                        Ok(loss) => {
+                            total_loss += loss;
+                            num_batches += 1;
+                        }
+                        Err(e) => println!("Warning: Error in batch: {}", e),
+                    },
+                    None => break,
                 }
             }
 
