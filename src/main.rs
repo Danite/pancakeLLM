@@ -24,7 +24,7 @@ fn main() -> Result<()> {
 
     let _tokenizer = LLMTokenizer::new()?;
 
-    // Create a dummy dataset with correct types
+    // dummy dataset
     let dataset: Vec<Tensor> = (0..100)
         .map(|_| {
             let input_ids = Tensor::randint(config.vocab_size, &[50], (Kind::Int64, device));
