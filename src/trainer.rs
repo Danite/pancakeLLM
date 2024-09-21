@@ -2,6 +2,7 @@ use anyhow::Result;
 use tch::nn::{ModuleT, OptimizerConfig};
 use tch::{nn, Device, Tensor};
 
+use crate::dataset::Dataset;
 use crate::model::{LLMConfig, PancakeLLM};
 
 pub struct Trainer {
@@ -24,8 +25,8 @@ impl Trainer {
     }
 
     pub fn train_step(&mut self, batch: &Tensor) -> Result<f64> {
-        let input_ids = batch.select(0, 0);
-        let labels = batch.select(0, 1);
+        let input_ids = batch.shallow_clone();
+        let labels = batch.shallow_clone();
 
         let logits = self.model.forward_t(&input_ids, true);
         let loss = logits
@@ -41,17 +42,20 @@ impl Trainer {
         Ok(loss.double_value(&[]))
     }
 
-    pub fn train(&mut self, dataset: &[Tensor], num_epochs: usize, _batch_size: i64) -> Result<()> {
-        if dataset.is_empty() {
-            return Err(anyhow::anyhow!("Dataset is empty"));
-        }
-
+    pub fn train(&mut self, dataset: &Dataset, num_epochs: usize, batch_size: usize) -> Result<()> {
         for epoch in 0..num_epochs {
             let mut total_loss = 0.0;
-            let num_batches = dataset.len() as i64;
+            let num_batches = (dataset.len() + batch_size - 1) / batch_size;
 
-            for batch in dataset.iter() {
-                match self.train_step(batch) {
+            for _ in 0..num_batches {
+                let batch = dataset.get_batch(batch_size)?;
+
+                // Skip empty batches
+                if batch.size()[0] == 0 {
+                    continue;
+                }
+
+                match self.train_step(&batch) {
                     Ok(loss) => total_loss += loss,
                     Err(e) => println!("Warning: Error in batch: {}", e),
                 }
@@ -60,9 +64,8 @@ impl Trainer {
             let avg_loss = if num_batches > 0 {
                 total_loss / num_batches as f64
             } else {
-                f64::NAN
+                0.0
             };
-
             println!("Epoch {}: Average loss = {:.6}", epoch + 1, avg_loss);
         }
 

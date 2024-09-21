@@ -1,10 +1,12 @@
+mod dataset;
 mod model;
 mod tokenizer;
 mod trainer;
 
 use anyhow::Result;
-use tch::{Device, Kind, Tensor};
+use tch::Device;
 
+use crate::dataset::Dataset;
 use crate::model::LLMConfig;
 use crate::tokenizer::LLMTokenizer;
 use crate::trainer::Trainer;
@@ -22,18 +24,15 @@ fn main() -> Result<()> {
     let device = Device::cuda_if_available();
     let mut trainer = Trainer::new(&config, 1e-4, device)?;
 
-    let _tokenizer = LLMTokenizer::new()?;
+    let tokenizer = LLMTokenizer::new()?;
+    let dataset = Dataset::new(
+        "data/test_dataset.jsonl",
+        tokenizer,
+        config.max_position_embeddings as usize,
+        device,
+    )?;
 
-    // dummy dataset
-    let dataset: Vec<Tensor> = (0..100)
-        .map(|_| {
-            let input_ids = Tensor::randint(config.vocab_size, &[32, 50], (Kind::Int64, device));
-            let labels = Tensor::randint(config.vocab_size, &[32, 50], (Kind::Int64, device));
-            Tensor::stack(&[input_ids, labels], 0)
-        })
-        .collect();
-
-    trainer.train(&dataset, 10, 32)?;
+    trainer.train(&dataset, 10, 5)?;
 
     Ok(())
 }

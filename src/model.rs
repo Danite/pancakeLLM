@@ -1,6 +1,6 @@
 use anyhow::Result;
 use tch::nn::{Module, ModuleT};
-use tch::{nn, Tensor};
+use tch::{nn, Kind, Tensor};
 
 #[derive(Debug, Clone)]
 pub struct LLMConfig {
@@ -162,28 +162,24 @@ impl MultiHeadAttention {
 
 impl ModuleT for PancakeLLM {
     fn forward_t(&self, input_ids: &Tensor, train: bool) -> Tensor {
-        let (batch_size, seq_len) = input_ids.size2().unwrap();
-        let position_ids = Tensor::arange(seq_len, (input_ids.kind(), input_ids.device()))
-            .unsqueeze(0)
-            .expand(&[batch_size, seq_len], true);
+        let token_embeddings = self.token_embeddings.forward(input_ids);
+        let position_ids = Tensor::arange(input_ids.size()[1], (Kind::Int64, input_ids.device()));
+        let position_embeddings = self.position_embeddings.forward(&position_ids);
 
-        let token_embeds = self.token_embeddings.forward(input_ids);
-        let position_embeds = self.position_embeddings.forward(&position_ids);
-
-        let mut hidden_states = token_embeds + position_embeds;
+        let mut hidden_states = token_embeddings + position_embeddings;
         hidden_states = self.layer_norm.forward(&hidden_states);
 
         for layer in &self.encoder {
-            hidden_states = layer.forward_t(&hidden_states, train);
+            hidden_states = layer.forward(&hidden_states);
         }
 
         self.lm_head.forward(&hidden_states)
     }
 }
 
-impl ModuleT for TransformerLayer {
-    fn forward_t(&self, hidden_states: &Tensor, _train: bool) -> Tensor {
-        let attention_output = self.self_attention.forward_t(hidden_states, _train);
+impl Module for TransformerLayer {
+    fn forward(&self, hidden_states: &Tensor) -> Tensor {
+        let attention_output = self.self_attention.forward_t(hidden_states, false);
         let hidden_states = self
             .attention_layer_norm
             .forward(&(hidden_states + attention_output));
