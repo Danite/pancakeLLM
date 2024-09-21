@@ -12,7 +12,7 @@ pub struct LLMTokenizer {
 }
 
 impl LLMTokenizer {
-    pub fn new() -> Result<Self> {
+    pub fn new(training_file: &str) -> Result<Self> {
         let normalizer = Sequence::new(vec![NFD.into(), Lowercase.into(), StripAccents.into()]);
         let decoder = WordPiece::default();
 
@@ -28,7 +28,7 @@ impl LLMTokenizer {
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build tokenizer: {}", e))?;
 
-        // Train the tokenizer on the test dataset
+        // Train the tokenizer on the provided dataset
         let mut trainer = BpeTrainerBuilder::new()
             .vocab_size(30000)
             .min_frequency(2)
@@ -41,7 +41,7 @@ impl LLMTokenizer {
             ])
             .build();
 
-        let files = vec![String::from("data/test_dataset.jsonl")];
+        let files = vec![training_file.to_string()];
         tokenizer
             .train_from_files(&mut trainer, files)
             .map_err(|e| anyhow::anyhow!("Failed to train tokenizer: {}", e))?;

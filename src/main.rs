@@ -42,8 +42,10 @@ fn test_prediction(
 }
 
 fn main() -> Result<()> {
+    let training_file = "data/test_dataset.jsonl";
     let tokenizer = Arc::new(
-        LLMTokenizer::new().map_err(|e| anyhow::anyhow!("Failed to create tokenizer: {}", e))?,
+        LLMTokenizer::new(training_file)
+            .map_err(|e| anyhow::anyhow!("Failed to create tokenizer: {}", e))?,
     );
 
     let config = LLMConfig {
