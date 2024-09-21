@@ -1,4 +1,5 @@
 use anyhow::Result;
+use tch::nn::{ModuleT, OptimizerConfig};
 use tch::{nn, Device, Tensor};
 
 use crate::model::{LLMConfig, PancakeLLM};
@@ -22,38 +23,46 @@ impl Trainer {
         })
     }
 
-    pub fn train_step(&mut self, input_ids: &Tensor, labels: &Tensor) -> Result<f64> {
-        let loss = self.model.forward(input_ids)?.cross_entropy_loss(labels);
+    pub fn train_step(&mut self, batch: &Tensor) -> Result<f64> {
+        let input_ids = batch.select(0, 0);
+        let labels = batch.select(0, 1);
+
+        let logits = self.model.forward_t(&input_ids, true);
+        let loss =
+            logits.cross_entropy_loss::<Tensor>(&labels, None, tch::Reduction::Mean, -100, 0.0);
+
+        if loss.isnan().any().int64_value(&[]) != 0 {
+            return Err(anyhow::anyhow!("NaN loss encountered"));
+        }
 
         self.optimizer.backward_step(&loss);
 
-        Ok(f64::from(&loss))
+        Ok(loss.double_value(&[]))
     }
 
-    pub fn train(&mut self, dataset: &[Tensor], num_epochs: usize, batch_size: i64) -> Result<()> {
+    pub fn train(&mut self, dataset: &[Tensor], num_epochs: usize, _batch_size: i64) -> Result<()> {
+        if dataset.is_empty() {
+            return Err(anyhow::anyhow!("Dataset is empty"));
+        }
+
         for epoch in 0..num_epochs {
             let mut total_loss = 0.0;
-            let num_batches = dataset.len() as i64 / batch_size;
+            let num_batches = dataset.len() as i64;
 
-            for batch_idx in 0..num_batches {
-                let start = batch_idx * batch_size;
-                let end = (batch_idx + 1) * batch_size;
-
-                let batch =
-                    Tensor::stack(&dataset[start as usize..end as usize], 0).to(self.device);
-
-                let input_ids = batch.slice(1, 0, -1, 1);
-                let labels = batch.slice(1, 1, batch.size()[1], 1);
-
-                let loss = self.train_step(&input_ids, &labels)?;
-                total_loss += loss;
+            for batch in dataset.iter() {
+                match self.train_step(batch) {
+                    Ok(loss) => total_loss += loss,
+                    Err(e) => println!("Warning: Error in batch: {}", e),
+                }
             }
 
-            println!(
-                "Epoch {}: Average loss = {}",
-                epoch + 1,
+            let avg_loss = if num_batches > 0 {
                 total_loss / num_batches as f64
-            );
+            } else {
+                f64::NAN
+            };
+
+            println!("Epoch {}: Average loss = {:.6}", epoch + 1, avg_loss);
         }
 
         Ok(())

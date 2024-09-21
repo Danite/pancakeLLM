@@ -1,5 +1,6 @@
 use anyhow::Result;
-use tch::{nn, Device, Tensor};
+use tch::nn::{Module, ModuleT};
+use tch::{nn, Tensor};
 
 pub struct LLMConfig {
     pub vocab_size: i64,
@@ -10,9 +11,10 @@ pub struct LLMConfig {
     pub max_position_embeddings: i64,
 }
 
+#[derive(Debug)]
 pub struct PancakeLLM {
     embeddings: nn::Embedding,
-    encoder: nn::TransformerEncoder,
+    encoder: Vec<nn::Sequential>,
     lm_head: nn::Linear,
 }
 
@@ -25,22 +27,36 @@ impl PancakeLLM {
             Default::default(),
         );
 
-        let encoder_layer = nn::transformer_encoder_layer(
-            vs / "encoder_layer",
-            nn::TransformerEncoderLayerConfig {
-                d_model: config.hidden_size,
-                nhead: config.num_attention_heads,
-                dim_feedforward: config.intermediate_size,
-                ..Default::default()
-            },
-        );
-
-        let encoder = nn::transformer_encoder(
-            vs / "encoder",
-            &encoder_layer,
-            config.num_hidden_layers,
-            None,
-        );
+        let mut encoder = Vec::new();
+        for i in 0..config.num_hidden_layers {
+            let layer = nn::seq()
+                .add(nn::layer_norm(
+                    vs / format!("layer_norm_{}", i),
+                    vec![config.hidden_size],
+                    Default::default(),
+                ))
+                .add(nn::linear(
+                    vs / format!("attention_{}", i),
+                    config.hidden_size,
+                    config.hidden_size,
+                    Default::default(),
+                ))
+                .add_fn(|x| x.relu())
+                .add(nn::linear(
+                    vs / format!("ff_{}", i),
+                    config.hidden_size,
+                    config.intermediate_size,
+                    Default::default(),
+                ))
+                .add_fn(|x| x.relu())
+                .add(nn::linear(
+                    vs / format!("ff_out_{}", i),
+                    config.intermediate_size,
+                    config.hidden_size,
+                    Default::default(),
+                ));
+            encoder.push(layer);
+        }
 
         let lm_head = nn::linear(
             vs / "lm_head",
@@ -55,11 +71,14 @@ impl PancakeLLM {
             lm_head,
         })
     }
+}
 
-    pub fn forward(&self, input_ids: &Tensor) -> Result<Tensor> {
-        let embedded = self.embeddings.forward(input_ids);
-        let encoded = self.encoder.forward(&embedded, None, None);
-        let output = self.lm_head.forward(&encoded);
-        Ok(output)
+impl ModuleT for PancakeLLM {
+    fn forward_t(&self, input_ids: &Tensor, train: bool) -> Tensor {
+        let mut embedded = self.embeddings.forward(input_ids);
+        for layer in &self.encoder {
+            embedded = layer.forward_t(&embedded, train);
+        }
+        self.lm_head.forward(&embedded)
     }
 }

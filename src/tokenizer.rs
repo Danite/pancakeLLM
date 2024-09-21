@@ -14,17 +14,17 @@ impl LLMTokenizer {
         let mut tokenizer = Tokenizer::new(BPE::default());
 
         // Set up normalizers
-        tokenizer.with_normalizer(NFD.into());
-        tokenizer.with_normalizer(Lowercase.into());
-        tokenizer.with_normalizer(StripAccents.into());
+        tokenizer.with_normalizer(Some(NFD));
+        tokenizer.with_normalizer(Some(Lowercase));
+        tokenizer.with_normalizer(Some(StripAccents));
 
         // Set up pre-tokenizer
-        tokenizer.with_pre_tokenizer(Whitespace::default());
+        tokenizer.with_pre_tokenizer(Some(Whitespace::default()));
 
         // Set up post-processor
         let bert_processing =
             BertProcessing::new(("[SEP]".to_string(), 102), ("[CLS]".to_string(), 101));
-        tokenizer.with_post_processor(bert_processing);
+        tokenizer.with_post_processor(Some(bert_processing));
 
         // Add special tokens
         tokenizer.add_special_tokens(&[
@@ -39,12 +39,12 @@ impl LLMTokenizer {
     }
 
     pub fn encode(&self, text: &str) -> Result<Vec<u32>> {
-        let encoding = self.tokenizer.encode(text, false)?;
+        let encoding = self.tokenizer.encode(text, false).unwrap();
         Ok(encoding.get_ids().to_vec())
     }
 
     pub fn decode(&self, ids: &[u32]) -> Result<String> {
-        let decoded = self.tokenizer.decode(ids, false)?;
+        let decoded = self.tokenizer.decode(ids, false).unwrap();
         Ok(decoded)
     }
 }
