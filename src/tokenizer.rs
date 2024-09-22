@@ -1,8 +1,11 @@
 use anyhow::Result;
-use tokenizers::decoders::wordpiece::WordPiece;
-use tokenizers::models::bpe::{BpeTrainerBuilder, BPE};
-use tokenizers::normalizers::{Lowercase, Sequence, StripAccents, NFD};
-use tokenizers::pre_tokenizers::whitespace::Whitespace;
+use tokenizers::decoders::wordpiece::WordPiece as WordPieceDecoder;
+use tokenizers::models::wordpiece::{WordPiece, WordPieceTrainer};
+use tokenizers::normalizers::{Sequence as NormalizerSequence, StripAccents, NFD};
+use tokenizers::pre_tokenizers::{
+    punctuation::Punctuation, sequence::Sequence as PreTokenizerSequence, whitespace::Whitespace,
+    PreTokenizerWrapper,
+};
 use tokenizers::processors::bert::BertProcessing;
 use tokenizers::{AddedToken, Tokenizer, TokenizerBuilder};
 
@@ -13,13 +16,18 @@ pub struct LLMTokenizer {
 
 impl LLMTokenizer {
     pub fn new(training_file: &str) -> Result<Self> {
-        let normalizer = Sequence::new(vec![NFD.into(), Lowercase.into(), StripAccents.into()]);
-        let decoder = WordPiece::default();
+        let normalizer = NormalizerSequence::new(vec![NFD.into(), StripAccents.into()]);
+        let decoder = WordPieceDecoder::default();
+
+        let pre_tokenizer = PreTokenizerSequence::new(vec![
+            PreTokenizerWrapper::Whitespace(Whitespace::default()),
+            PreTokenizerWrapper::Punctuation(Punctuation::default()),
+        ]);
 
         let mut tokenizer = TokenizerBuilder::new()
-            .with_model(BPE::default())
+            .with_model(WordPiece::default())
             .with_normalizer(Some(normalizer))
-            .with_pre_tokenizer(Some(Whitespace::default()))
+            .with_pre_tokenizer(Some(pre_tokenizer))
             .with_decoder(Some(decoder))
             .with_post_processor(Some(BertProcessing::new(
                 ("[SEP]".to_string(), 102),
@@ -28,8 +36,7 @@ impl LLMTokenizer {
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build tokenizer: {}", e))?;
 
-        // Train the tokenizer on the provided dataset
-        let mut trainer = BpeTrainerBuilder::new()
+        let mut trainer = WordPieceTrainer::builder()
             .vocab_size(30000)
             .min_frequency(2)
             .special_tokens(vec![
@@ -39,6 +46,7 @@ impl LLMTokenizer {
                 AddedToken::from("[CLS]", true),
                 AddedToken::from("[MASK]", true),
             ])
+            .continuing_subword_prefix("##".to_string())
             .build();
 
         let files = vec![training_file.to_string()];
@@ -71,6 +79,7 @@ impl LLMTokenizer {
             .tokenizer
             .decode(ids, false)
             .map_err(|e| anyhow::anyhow!("Failed to decode: {}", e))?;
+
         Ok(decoded)
     }
 

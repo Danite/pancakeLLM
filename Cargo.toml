@@ -3,6 +3,10 @@ name = "pancakellm"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "pancakellm"
+path = "src/lib.rs"
+
 [dependencies]
 tch = "0.17.0"
 tokenizers = "0.20.0"
@@ -12,5 +16,7 @@ rayon = "1.5"
 ndarray = "0.16"
 anyhow = "1.0"
 rand = "0.8.5"
+unicode_categories = "0.1.1"
 
-[build-dependencies]
+[dev-dependencies]
+tempfile = "3.2"
